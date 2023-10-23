@@ -44,7 +44,7 @@ $(function() {
 
 	function initializeMap() {
 
-		mapboxgl.accessToken = 'pk.eyJ1IjoiYWxpYXNocmFmIiwiYSI6ImNqdXl5MHV5YTAzNXI0NG51OWFuMGp4enQifQ.zpd2gZFwBTRqiapp1yci9g';
+		mapboxgl.accessToken = 'pk.eyJ1IjoicmFtaWNjb2RlcyIsImEiOiJjbG53a3F1MHcwOTA3MnNudnZqY3gwa2ZoIn0.ZQO8_Gj8v7oCegtX4B1wyw';
 
 		map = new mapboxgl.Map({
 			container: 'map-view',
@@ -481,6 +481,7 @@ $(function() {
 		})
 
 		let i = 0;
+    let downloadedTiles = 0;
 		var iterator = async.eachLimit(allTiles, numThreads, function(item, done) {
 
 			if(cancellationToken) {
@@ -504,7 +505,7 @@ $(function() {
 			data.append('source', source)
 			data.append('bounds', boundsArray.join(","))
 			data.append('center', centerArray.join(","))
-
+      
 			var request = $.ajax({
 				"url": url,
 				async: true,
@@ -523,18 +524,64 @@ $(function() {
 				if(data.code == 200) {
 					showTinyTile(data.image)
 					logItem(item.x, item.y, item.z, data.message);
+          downloadedTiles++;
 				} else {
 					logItem(item.x, item.y, item.z, data.code + " Error downloading tile");
 				}
 
-			}).fail(function(data, textStatus, errorThrown) {
+			}).fail(function (data, textStatus, errorThrown) {
+
+        logItem(item.x, item.y, item.z, "Error while relaying tile");
+        logItem(item.x, item.y, item.z, "Redownloading Tile...");
+        var url = "/download-tile";
+
+        var missingTile = new FormData();
+        missingTile.append('x', allTiles[downloadedTiles].x)
+        missingTile.append('y', allTiles[downloadedTiles].y)
+        missingTile.append('z', allTiles[downloadedTiles].z)
+        missingTile.append('quad', generateQuadKey(allTiles[downloadedTiles].x, allTiles[downloadedTiles].y, allTiles[downloadedTiles].z))
+        missingTile.append('outputDirectory', outputDirectory)
+        missingTile.append('outputFile', outputFile)
+        missingTile.append('outputType', outputType)
+        missingTile.append('outputScale', outputScale)
+        missingTile.append('timestamp', timestamp)
+        missingTile.append('source', source)
+        missingTile.append('bounds', boundsArray.join(","))
+        missingTile.append('center', centerArray.join(","))
+
+        var request = $.ajax({
+          "url": url,
+          async: false,
+          timeout: 30 * 1000,
+          type: "post",
+            contentType: false,
+            processData: false,
+          data: missingTile,
+          dataType: 'json',
+			}).done(function(data) {
 
 				if(cancellationToken) {
 					return;
 				}
 
-				logItem(item.x, item.y, item.z, "Error while relaying tile");
-				//allTiles.push(item);
+				if(data.code == 200) {
+					showTinyTile(data.image)
+					logItem(allTiles[downloadedTiles].x, allTiles[downloadedTiles].y, allTiles[downloadedTiles].z, data.message);
+          downloadedTiles++;
+				} else {
+					logItem(item.x, item.y, item.z, data.code + " Error downloading tile");
+				}
+
+			}).fail(function(data, textStatus, errorThrown) {
+        console.log("ERROR");
+        return
+      })
+				if(cancellationToken) {
+					return;
+				}
+
+
+
 
 			}).always(function(data) {
 				i++;
@@ -551,6 +598,7 @@ $(function() {
 
 			requests.push(request);
 
+
 		}, async function(err) {
 
 			var request = await $.ajax({
@@ -564,8 +612,12 @@ $(function() {
 				dataType: 'json',
 			})
 
-			updateProgress(allTiles.length, allTiles.length);
-			logItemRaw("All requests are done");
+			updateProgress(downloadedTiles, allTiles.length);
+      logItemRaw(`${downloadedTiles}/${allTiles.length} ${allTiles.length > 1 ? 'tiles' : 'tile'} are downloaded`);
+
+      if (downloadedTiles != allTiles.length) {
+        logItemRaw(`Downloading ${allTiles.length - downloadedTiles} ${allTiles.length - downloadedTiles > 1 ? 'tiles' : 'tile'} failed`);
+      }
 
 			$("#stop-button").html("FINISH");
 		});
@@ -623,6 +675,6 @@ $(function() {
 	initializeSearch();
 	initializeRectangleTool();
 	initializeGridPreview();
-	initializeMoreOptions();
+  initializeMoreOptions();
 	initializeDownloader();
 });
